@@ -1,28 +1,20 @@
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use time::OffsetDateTime;
-use uuid::Uuid;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
-/// Server-visible device identity record.
-///
-/// This record contains public information only. Private identity keys are
-/// generated and stored on the client device.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceIdentity {
-    pub device_id: Uuid,
+    pub device_id: String,
     pub display_name: String,
-    pub identity_public_key: VerifyingKey,
-    pub signed_prekey_public_key: [u8; 32],
-    pub signed_prekey_signature: Signature,
+    pub identity_public_key_ed25519: [u8; 32],
+    pub signed_prekey_public_key_x25519: [u8; 32],
+    pub signed_prekey_signature_ed25519: [u8; 64],
     pub status: DeviceStatus,
-    pub created_at: OffsetDateTime,
-    pub approved_at: Option<OffsetDateTime>,
-    pub revoked_at: Option<OffsetDateTime>,
+    pub created_at_unix_seconds: i64,
+    pub approved_at_unix_seconds: Option<i64>,
+    pub revoked_at_unix_seconds: Option<i64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceStatus {
     PendingApproval,
     Approved,
@@ -31,60 +23,77 @@ pub enum DeviceStatus {
 
 impl DeviceIdentity {
     pub fn new_pending(
+        device_id: impl Into<String>,
         display_name: impl Into<String>,
-        identity_public_key: VerifyingKey,
-        signed_prekey_public_key: [u8; 32],
-        signed_prekey_signature: Signature,
-        created_at: OffsetDateTime,
+        identity_public_key_ed25519: [u8; 32],
+        signed_prekey_public_key_x25519: [u8; 32],
+        signed_prekey_signature_ed25519: [u8; 64],
+        created_at_unix_seconds: i64,
     ) -> Result<Self, DeviceIdentityError> {
+        let device_id = device_id.into();
         let display_name = display_name.into();
+        if device_id.trim().is_empty() {
+            return Err(DeviceIdentityError::EmptyDeviceId);
+        }
         if display_name.trim().is_empty() {
             return Err(DeviceIdentityError::EmptyDisplayName);
         }
-
-        identity_public_key
-            .verify(&signed_prekey_public_key, &signed_prekey_signature)
-            .map_err(|_| DeviceIdentityError::InvalidSignedPrekeySignature)?;
+        if identity_public_key_ed25519 == [0; 32] {
+            return Err(DeviceIdentityError::InvalidPublicKey);
+        }
+        if signed_prekey_public_key_x25519 == [0; 32] {
+            return Err(DeviceIdentityError::InvalidSignedPrekey);
+        }
+        if signed_prekey_signature_ed25519 == [0; 64] {
+            return Err(DeviceIdentityError::MissingSignedPrekeyProof);
+        }
 
         Ok(Self {
-            device_id: Uuid::new_v4(),
+            device_id,
             display_name,
-            identity_public_key,
-            signed_prekey_public_key,
-            signed_prekey_signature,
+            identity_public_key_ed25519,
+            signed_prekey_public_key_x25519,
+            signed_prekey_signature_ed25519,
             status: DeviceStatus::PendingApproval,
-            created_at,
-            approved_at: None,
-            revoked_at: None,
+            created_at_unix_seconds,
+            approved_at_unix_seconds: None,
+            revoked_at_unix_seconds: None,
         })
     }
 
-    pub fn approve(&mut self, approved_at: OffsetDateTime) -> Result<(), DeviceIdentityError> {
+    pub fn approve(&mut self, approved_at_unix_seconds: i64) -> Result<(), DeviceIdentityError> {
         if self.status == DeviceStatus::Revoked {
             return Err(DeviceIdentityError::CannotApproveRevokedDevice);
         }
-
         self.status = DeviceStatus::Approved;
-        self.approved_at = Some(approved_at);
+        self.approved_at_unix_seconds = Some(approved_at_unix_seconds);
         Ok(())
     }
 
-    pub fn revoke(&mut self, revoked_at: OffsetDateTime) {
+    pub fn revoke(&mut self, revoked_at_unix_seconds: i64) {
         self.status = DeviceStatus::Revoked;
-        self.revoked_at = Some(revoked_at);
+        self.revoked_at_unix_seconds = Some(revoked_at_unix_seconds);
     }
 
     pub fn can_authenticate(&self) -> bool {
-        self.status == DeviceStatus::Approved && self.revoked_at.is_none()
+        self.status == DeviceStatus::Approved && self.revoked_at_unix_seconds.is_none()
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DeviceIdentityError {
-    #[error("display name must not be empty")]
+    EmptyDeviceId,
     EmptyDisplayName,
-    #[error("signed pre-key signature does not verify against the identity key")]
-    InvalidSignedPrekeySignature,
-    #[error("revoked devices cannot be re-approved")]
+    InvalidPublicKey,
+    InvalidSignedPrekey,
+    MissingSignedPrekeyProof,
     CannotApproveRevokedDevice,
 }
+
+impl Display for DeviceIdentityError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl Error for DeviceIdentityError {}

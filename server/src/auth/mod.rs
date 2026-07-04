@@ -1,5 +1,3 @@
-//! Public-key authentication primitives.
-
 pub mod challenge;
 pub mod device_identity;
 

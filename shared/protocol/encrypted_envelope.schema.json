@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://secure-private-messaging.local/schemas/encrypted_envelope.schema.json",
+  "title": "Encrypted Envelope",
+  "type": "object",
+  "required": [
+    "type",
+    "envelopeId",
+    "conversationId",
+    "senderDeviceId",
+    "recipientDeviceIds",
+    "kind",
+    "ratchetHeader",
+    "associatedData",
+    "nonce",
+    "ciphertext",
+    "authenticationTag"
+  ],
+  "properties": {
+    "type": { "const": "encrypted_envelope_v1" },
+    "envelopeId": { "type": "string", "minLength": 1 },
+    "conversationId": { "type": "string", "minLength": 1 },
+    "senderDeviceId": { "type": "string", "minLength": 1 },
+    "recipientDeviceIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "kind": {
+      "enum": [
+        "one_to_one_message",
+        "group_message",
+        "delivery_receipt",
+        "read_receipt",
+        "typing_indicator"
+      ]
+    },
+    "ratchetHeader": {
+      "type": "object",
+      "required": ["senderRatchetPublicKeyX25519", "previousChainLength", "messageNumber"],
+      "properties": {
+        "senderRatchetPublicKeyX25519": { "$ref": "#/$defs/base64Bytes" },
+        "previousChainLength": { "type": "integer", "minimum": 0 },
+        "messageNumber": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "associatedData": { "$ref": "#/$defs/base64Bytes" },
+    "nonce": { "$ref": "#/$defs/base64Bytes" },
+    "ciphertext": { "$ref": "#/$defs/base64Bytes" },
+    "authenticationTag": { "$ref": "#/$defs/base64Bytes" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "base64Bytes": {
+      "type": "string",
+      "contentEncoding": "base64"
+    }
+  }
+}

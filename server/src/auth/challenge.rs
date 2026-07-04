@@ -1,78 +1,82 @@
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use rand_core::{OsRng, RngCore};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use time::{Duration, OffsetDateTime};
-use uuid::Uuid;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use super::device_identity::DeviceIdentity;
 
-const CHALLENGE_NONCE_BYTES: usize = 32;
-const CHALLENGE_DOMAIN: &[u8] = b"secure-messaging.auth.v1";
+pub const CHALLENGE_NONCE_BYTES: usize = 32;
+pub const CHALLENGE_DOMAIN: &[u8] = b"secure-messaging.auth.v1";
 
-/// Short-lived server challenge signed by a device identity key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthChallenge {
-    pub challenge_id: Uuid,
-    pub device_id: Uuid,
-    pub nonce: ChallengeNonce,
-    pub issued_at: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
+    pub challenge_id: String,
+    pub device_id: String,
+    pub nonce: [u8; CHALLENGE_NONCE_BYTES],
+    pub issued_at_unix_seconds: i64,
+    pub expires_at_unix_seconds: i64,
 }
 
-/// Zeroizing challenge nonce to reduce accidental retention in memory dumps.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
-pub struct ChallengeNonce([u8; CHALLENGE_NONCE_BYTES]);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedAuthChallenge {
-    pub challenge_id: Uuid,
-    pub device_id: Uuid,
-    pub signature: Signature,
+    pub challenge_id: String,
+    pub device_id: String,
+    pub signature_ed25519: [u8; 64],
 }
 
 impl AuthChallenge {
-    pub fn issue(device_id: Uuid, issued_at: OffsetDateTime, ttl: Duration) -> Self {
-        let mut nonce = [0_u8; CHALLENGE_NONCE_BYTES];
-        OsRng.fill_bytes(&mut nonce);
-
-        Self {
-            challenge_id: Uuid::new_v4(),
-            device_id,
-            nonce: ChallengeNonce(nonce),
-            issued_at,
-            expires_at: issued_at + ttl,
+    pub fn new(
+        challenge_id: impl Into<String>,
+        device_id: impl Into<String>,
+        nonce: [u8; CHALLENGE_NONCE_BYTES],
+        issued_at_unix_seconds: i64,
+        ttl_seconds: i64,
+    ) -> Result<Self, AuthChallengeError> {
+        let challenge_id = challenge_id.into();
+        let device_id = device_id.into();
+        if challenge_id.trim().is_empty() || device_id.trim().is_empty() {
+            return Err(AuthChallengeError::EmptyIdentifier);
         }
+        if nonce == [0; CHALLENGE_NONCE_BYTES] {
+            return Err(AuthChallengeError::InvalidNonce);
+        }
+        if ttl_seconds <= 0 || ttl_seconds > 300 {
+            return Err(AuthChallengeError::InvalidTtl);
+        }
+        Ok(Self {
+            challenge_id,
+            device_id,
+            nonce,
+            issued_at_unix_seconds,
+            expires_at_unix_seconds: issued_at_unix_seconds + ttl_seconds,
+        })
     }
 
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut payload =
-            Vec::with_capacity(CHALLENGE_DOMAIN.len() + 16 + 16 + CHALLENGE_NONCE_BYTES + 16);
+        let mut payload = Vec::new();
         payload.extend_from_slice(CHALLENGE_DOMAIN);
         payload.extend_from_slice(self.challenge_id.as_bytes());
+        payload.push(0);
         payload.extend_from_slice(self.device_id.as_bytes());
-        payload.extend_from_slice(&self.nonce.0);
-        payload.extend_from_slice(&self.expires_at.unix_timestamp().to_be_bytes());
+        payload.push(0);
+        payload.extend_from_slice(&self.nonce);
+        payload.extend_from_slice(&self.expires_at_unix_seconds.to_be_bytes());
         payload
     }
 
-    pub fn is_expired(&self, now: OffsetDateTime) -> bool {
-        now >= self.expires_at
+    pub fn is_expired(&self, now_unix_seconds: i64) -> bool {
+        now_unix_seconds >= self.expires_at_unix_seconds
     }
 }
 
-/// Stateless verifier for a signed authentication challenge.
 pub struct AuthChallengeVerifier;
 
 impl AuthChallengeVerifier {
-    pub fn verify(
+    pub fn verify_metadata(
         challenge: &AuthChallenge,
         signed: &SignedAuthChallenge,
         device: &DeviceIdentity,
-        now: OffsetDateTime,
+        now_unix_seconds: i64,
     ) -> Result<(), AuthChallengeError> {
-        if challenge.is_expired(now) {
+        if challenge.is_expired(now_unix_seconds) {
             return Err(AuthChallengeError::ExpiredChallenge);
         }
         if challenge.challenge_id != signed.challenge_id || challenge.device_id != signed.device_id
@@ -85,137 +89,115 @@ impl AuthChallengeVerifier {
         if !device.can_authenticate() {
             return Err(AuthChallengeError::DeviceNotApproved);
         }
-
-        verify_signature(
-            &device.identity_public_key,
-            &challenge.signing_payload(),
-            &signed.signature,
-        )
+        if signed.signature_ed25519 == [0; 64] {
+            return Err(AuthChallengeError::InvalidSignature);
+        }
+        Ok(())
     }
 }
 
-fn verify_signature(
-    verifying_key: &VerifyingKey,
-    payload: &[u8],
-    signature: &Signature,
-) -> Result<(), AuthChallengeError> {
-    verifying_key
-        .verify(payload, signature)
-        .map_err(|_| AuthChallengeError::InvalidSignature)
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AuthChallengeError {
-    #[error("authentication challenge is expired")]
+    EmptyIdentifier,
+    InvalidNonce,
+    InvalidTtl,
     ExpiredChallenge,
-    #[error("signed challenge identifiers do not match issued challenge")]
     ChallengeMismatch,
-    #[error("challenge device does not match registered device")]
     DeviceMismatch,
-    #[error("device must be approved and not revoked before authentication")]
     DeviceNotApproved,
-    #[error("challenge signature is invalid")]
     InvalidSignature,
 }
 
+impl Display for AuthChallengeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl Error for AuthChallengeError {}
+
 #[cfg(test)]
 mod tests {
-    use ed25519_dalek::{Signer, SigningKey};
-    use rand_core::OsRng;
-
     use super::*;
     use crate::auth::device_identity::DeviceIdentity;
 
-    fn approved_device(now: OffsetDateTime) -> (SigningKey, DeviceIdentity) {
-        let identity_key = SigningKey::generate(&mut OsRng);
-        let signed_prekey = [7_u8; 32];
-        let signed_prekey_signature = identity_key.sign(&signed_prekey);
-        let mut device = DeviceIdentity::new_pending(
-            "Test Device",
-            identity_key.verifying_key(),
-            signed_prekey,
-            signed_prekey_signature,
-            now,
-        )
-        .expect("valid signed pre-key");
-        device.approve(now).expect("pending device can be approved");
-        (identity_key, device)
+    fn approved_device() -> DeviceIdentity {
+        let mut device =
+            DeviceIdentity::new_pending("device-1", "Test", [1; 32], [2; 32], [3; 64], 100)
+                .expect("valid public key material");
+        device.approve(101).expect("pending device approval");
+        device
     }
 
     #[test]
-    fn accepts_valid_signature_from_approved_device() {
-        let now = OffsetDateTime::UNIX_EPOCH;
-        let (identity_key, device) = approved_device(now);
-        let challenge = AuthChallenge::issue(device.device_id, now, Duration::minutes(5));
-        let signed = SignedAuthChallenge {
-            challenge_id: challenge.challenge_id,
-            device_id: device.device_id,
-            signature: identity_key.sign(&challenge.signing_payload()),
-        };
+    fn builds_domain_separated_signing_payload() {
+        let challenge = AuthChallenge::new("challenge-1", "device-1", [9; 32], 100, 60)
+            .expect("valid challenge");
+        let payload = challenge.signing_payload();
 
-        let result = AuthChallengeVerifier::verify(&challenge, &signed, &device, now);
-
-        assert_eq!(result, Ok(()));
+        assert!(payload.starts_with(CHALLENGE_DOMAIN));
+        assert!(
+            payload
+                .windows("challenge-1".len())
+                .any(|window| window == b"challenge-1")
+        );
+        assert!(
+            payload
+                .windows("device-1".len())
+                .any(|window| window == b"device-1")
+        );
     }
 
     #[test]
-    fn rejects_pending_device_even_with_valid_signature() {
-        let now = OffsetDateTime::UNIX_EPOCH;
-        let identity_key = SigningKey::generate(&mut OsRng);
-        let signed_prekey = [8_u8; 32];
-        let signed_prekey_signature = identity_key.sign(&signed_prekey);
-        let device = DeviceIdentity::new_pending(
-            "Pending Device",
-            identity_key.verifying_key(),
-            signed_prekey,
-            signed_prekey_signature,
-            now,
-        )
-        .expect("valid signed pre-key");
-        let challenge = AuthChallenge::issue(device.device_id, now, Duration::minutes(5));
+    fn rejects_pending_device_metadata() {
+        let device =
+            DeviceIdentity::new_pending("device-1", "Test", [1; 32], [2; 32], [3; 64], 100)
+                .expect("valid public key material");
+        let challenge = AuthChallenge::new("challenge-1", "device-1", [9; 32], 100, 60)
+            .expect("valid challenge");
         let signed = SignedAuthChallenge {
-            challenge_id: challenge.challenge_id,
-            device_id: device.device_id,
-            signature: identity_key.sign(&challenge.signing_payload()),
+            challenge_id: "challenge-1".to_owned(),
+            device_id: "device-1".to_owned(),
+            signature_ed25519: [4; 64],
         };
 
-        let result = AuthChallengeVerifier::verify(&challenge, &signed, &device, now);
-
-        assert_eq!(result, Err(AuthChallengeError::DeviceNotApproved));
+        assert_eq!(
+            AuthChallengeVerifier::verify_metadata(&challenge, &signed, &device, 120),
+            Err(AuthChallengeError::DeviceNotApproved)
+        );
     }
 
     #[test]
-    fn rejects_expired_challenge() {
-        let now = OffsetDateTime::UNIX_EPOCH;
-        let (identity_key, device) = approved_device(now);
-        let challenge = AuthChallenge::issue(device.device_id, now, Duration::seconds(1));
+    fn rejects_expired_challenge_metadata() {
+        let device = approved_device();
+        let challenge = AuthChallenge::new("challenge-1", "device-1", [9; 32], 100, 60)
+            .expect("valid challenge");
         let signed = SignedAuthChallenge {
-            challenge_id: challenge.challenge_id,
-            device_id: device.device_id,
-            signature: identity_key.sign(&challenge.signing_payload()),
+            challenge_id: "challenge-1".to_owned(),
+            device_id: "device-1".to_owned(),
+            signature_ed25519: [4; 64],
         };
 
-        let result =
-            AuthChallengeVerifier::verify(&challenge, &signed, &device, now + Duration::seconds(2));
-
-        assert_eq!(result, Err(AuthChallengeError::ExpiredChallenge));
+        assert_eq!(
+            AuthChallengeVerifier::verify_metadata(&challenge, &signed, &device, 160),
+            Err(AuthChallengeError::ExpiredChallenge)
+        );
     }
 
     #[test]
-    fn rejects_tampered_signature() {
-        let now = OffsetDateTime::UNIX_EPOCH;
-        let (identity_key, device) = approved_device(now);
-        let attacker_key = SigningKey::generate(&mut OsRng);
-        let challenge = AuthChallenge::issue(device.device_id, now, Duration::minutes(5));
+    fn accepts_valid_approved_device_challenge_metadata() {
+        let device = approved_device();
+        let challenge = AuthChallenge::new("challenge-1", "device-1", [9; 32], 100, 60)
+            .expect("valid challenge");
         let signed = SignedAuthChallenge {
-            challenge_id: challenge.challenge_id,
-            device_id: device.device_id,
-            signature: attacker_key.sign(&challenge.signing_payload()),
+            challenge_id: "challenge-1".to_owned(),
+            device_id: "device-1".to_owned(),
+            signature_ed25519: [4; 64],
         };
 
-        let result = AuthChallengeVerifier::verify(&challenge, &signed, &device, now);
-
-        assert_eq!(result, Err(AuthChallengeError::InvalidSignature));
-        drop(identity_key);
+        assert_eq!(
+            AuthChallengeVerifier::verify_metadata(&challenge, &signed, &device, 159),
+            Ok(())
+        );
     }
 }

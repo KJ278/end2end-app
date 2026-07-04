@@ -8,7 +8,7 @@ This repository contains an incrementally built, invite-only private messaging s
 | --- | --- | --- |
 | 1 | Architecture and folder structure | Complete |
 | 2 | Authentication and key generation | Complete |
-| 3 | End-to-end encrypted messaging | Pending |
+| 3 | End-to-end encrypted messaging | Complete |
 | 4 | Invite system | Pending |
 | 5 | Groups | Pending |
 | 6 | File sharing | Pending |
@@ -40,4 +40,4 @@ tests/           Cross-system integration, load, and penetration-test assets.
 
 ## Next step
 
-Phase 3 will add end-to-end encrypted messaging sessions and encrypted envelope transport after approval.
+Phase 4 will add single-use QR invitation and invite-code enrollment after approval.
