@@ -7,7 +7,7 @@ This repository contains an incrementally built, invite-only private messaging s
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Architecture and folder structure | Complete |
-| 2 | Authentication and key generation | Pending approval |
+| 2 | Authentication and key generation | Complete |
 | 3 | End-to-end encrypted messaging | Pending |
 | 4 | Invite system | Pending |
 | 5 | Groups | Pending |
@@ -40,4 +40,4 @@ tests/           Cross-system integration, load, and penetration-test assets.
 
 ## Next step
 
-Phase 2 will add client-side identity key generation, secure local secret storage abstractions, and public-key authentication protocol definitions after approval.
+Phase 3 will add end-to-end encrypted messaging sessions and encrypted envelope transport after approval.

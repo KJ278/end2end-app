@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://secure-private-messaging.local/schemas/authentication.schema.json",
+  "title": "Authentication Protocol Messages",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/deviceRegistration" },
+    { "$ref": "#/$defs/authChallenge" },
+    { "$ref": "#/$defs/signedAuthChallenge" }
+  ],
+  "$defs": {
+    "base64Bytes": {
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "deviceRegistration": {
+      "type": "object",
+      "required": ["type", "displayName", "identityPublicKeyEd25519", "signedPrekeyPublicKeyX25519", "signedPrekeySignatureEd25519"],
+      "properties": {
+        "type": { "const": "device_registration_v1" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "identityPublicKeyEd25519": { "$ref": "#/$defs/base64Bytes" },
+        "signedPrekeyPublicKeyX25519": { "$ref": "#/$defs/base64Bytes" },
+        "signedPrekeySignatureEd25519": { "$ref": "#/$defs/base64Bytes" }
+      },
+      "additionalProperties": false
+    },
+    "authChallenge": {
+      "type": "object",
+      "required": ["type", "challengeId", "deviceId", "nonce", "issuedAt", "expiresAt"],
+      "properties": {
+        "type": { "const": "auth_challenge_v1" },
+        "challengeId": { "type": "string", "format": "uuid" },
+        "deviceId": { "type": "string", "format": "uuid" },
+        "nonce": { "$ref": "#/$defs/base64Bytes" },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "signedAuthChallenge": {
+      "type": "object",
+      "required": ["type", "challengeId", "deviceId", "signatureEd25519"],
+      "properties": {
+        "type": { "const": "signed_auth_challenge_v1" },
+        "challengeId": { "type": "string", "format": "uuid" },
+        "deviceId": { "type": "string", "format": "uuid" },
+        "signatureEd25519": { "$ref": "#/$defs/base64Bytes" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
