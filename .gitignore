@@ -1,0 +1,16 @@
+# Rust
+/target/
+server/target/
+Cargo.lock
+!server/Cargo.lock
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# Local tooling
+/tmp/
+.DS_Store

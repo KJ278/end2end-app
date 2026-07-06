@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://secure-private-messaging.local/schemas/invite.schema.json",
+  "title": "Invite Protocol Messages",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/inviteBootstrap" },
+    { "$ref": "#/$defs/inviteRedemption" },
+    { "$ref": "#/$defs/pendingApproval" }
+  ],
+  "$defs": {
+    "base64Bytes": {
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "inviteBootstrap": {
+      "type": "object",
+      "required": ["type", "inviteId", "relayUrl", "secret", "expiresAt"],
+      "properties": {
+        "type": { "const": "invite_bootstrap_v1" },
+        "inviteId": { "type": "string", "minLength": 1 },
+        "relayUrl": { "type": "string", "format": "uri" },
+        "secret": { "$ref": "#/$defs/base64Bytes" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "inviteRedemption": {
+      "type": "object",
+      "required": ["type", "inviteId", "candidateDeviceId", "candidateIdentityPublicKeyEd25519", "secretProof"],
+      "properties": {
+        "type": { "const": "invite_redemption_v1" },
+        "inviteId": { "type": "string", "minLength": 1 },
+        "candidateDeviceId": { "type": "string", "minLength": 1 },
+        "candidateIdentityPublicKeyEd25519": { "$ref": "#/$defs/base64Bytes" },
+        "secretProof": { "$ref": "#/$defs/base64Bytes" }
+      },
+      "additionalProperties": false
+    },
+    "pendingApproval": {
+      "type": "object",
+      "required": ["type", "inviteId", "candidateDeviceId", "requiresManualApproval"],
+      "properties": {
+        "type": { "const": "pending_approval_v1" },
+        "inviteId": { "type": "string", "minLength": 1 },
+        "candidateDeviceId": { "type": "string", "minLength": 1 },
+        "requiresManualApproval": { "const": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}
