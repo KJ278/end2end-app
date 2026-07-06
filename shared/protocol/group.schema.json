@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://secure-private-messaging.local/schemas/group.schema.json",
+  "title": "Encrypted Group Protocol Messages",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/groupState" },
+    { "$ref": "#/$defs/groupMembershipChange" }
+  ],
+  "$defs": {
+    "base64Bytes": {
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "memberRole": {
+      "enum": ["owner", "admin", "member"]
+    },
+    "groupMember": {
+      "type": "object",
+      "required": ["deviceId", "role", "status"],
+      "properties": {
+        "deviceId": { "type": "string", "minLength": 1 },
+        "role": { "$ref": "#/$defs/memberRole" },
+        "status": { "enum": ["active", "removed"] }
+      },
+      "additionalProperties": false
+    },
+    "groupState": {
+      "type": "object",
+      "required": ["type", "groupId", "membershipEpoch", "encryptedGroupProfile", "profileNonce", "profileAuthenticationTag", "members"],
+      "properties": {
+        "type": { "const": "group_state_v1" },
+        "groupId": { "type": "string", "minLength": 1 },
+        "membershipEpoch": { "type": "integer", "minimum": 1 },
+        "encryptedGroupProfile": { "$ref": "#/$defs/base64Bytes" },
+        "profileNonce": { "$ref": "#/$defs/base64Bytes" },
+        "profileAuthenticationTag": { "$ref": "#/$defs/base64Bytes" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/groupMember" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "groupMembershipChange": {
+      "type": "object",
+      "required": ["type", "groupId", "actorDeviceId", "targetDeviceId", "action", "nextMembershipEpoch"],
+      "properties": {
+        "type": { "const": "group_membership_change_v1" },
+        "groupId": { "type": "string", "minLength": 1 },
+        "actorDeviceId": { "type": "string", "minLength": 1 },
+        "targetDeviceId": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["add", "remove", "promote", "demote"] },
+        "nextMembershipEpoch": { "type": "integer", "minimum": 2 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

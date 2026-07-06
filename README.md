@@ -10,7 +10,7 @@ This repository contains an incrementally built, invite-only private messaging s
 | 2 | Authentication and key generation | Complete |
 | 3 | End-to-end encrypted messaging | Complete |
 | 4 | Invite system | Complete |
-| 5 | Groups | Pending |
+| 5 | Groups | Complete |
 | 6 | File sharing | Pending |
 | 7 | Offline synchronization | Pending |
 | 8 | UI polish | Pending |
@@ -40,4 +40,4 @@ tests/           Cross-system integration, load, and penetration-test assets.
 
 ## Next step
 
-Phase 5 will add group membership and encrypted group messaging after approval.
+Phase 6 will add secure encrypted file sharing after approval.

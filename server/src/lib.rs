@@ -7,4 +7,5 @@
 pub mod admin;
 pub mod auth;
 pub mod crypto;
+pub mod groups;
 pub mod messaging;
