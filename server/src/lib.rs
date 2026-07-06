@@ -4,6 +4,7 @@
 //! envelopes only. It must never generate client private keys or decrypt message
 //! payloads.
 
+pub mod admin;
 pub mod auth;
 pub mod crypto;
 pub mod messaging;
